@@ -175,6 +175,7 @@ class Subprocess:
         if self.state not in states:
             current_state = getProcessStateDescription(self.state)
             allowable_states = ' '.join(map(getProcessStateDescription, states))
+            self.config.options.logger.error("Assertion ERROR: current_state(%s) not in expected(%s)" % current_state, allowable_states)
             raise AssertionError('Assertion failed for %s: %s not in %s' %  (
                 self.config.name, current_state, allowable_states))
 
@@ -441,6 +442,16 @@ class Subprocess:
         self.laststop = now
         processname = self.config.name
 
+        if now < self.laststart:
+            self.config.options.logger.warn("Abnormal system time detected: now(%d), laststart(%d)! Trying to recover" % (now, self.laststart))
+            if self.state == ProcessStates.STARTING:
+                self.laststart = now - self.config.startsecs
+            elif self.state == ProcessStates.RUNNING:
+                self.laststart = now - self.config.startsecs - 1
+                
+            if self.laststart < 0:
+                self.laststart = 0
+
         tooquickly = now - self.laststart < self.config.startsecs
         exit_expected = es in self.config.exitcodes
 
@@ -550,11 +561,21 @@ class Subprocess:
                     self.spawn()
             elif state == ProcessStates.BACKOFF:
                 if self.backoff <= self.config.startretries:
+                    if now < self.delay - self.backoff:
+                        logger.warn('Transition() BACKOFF state: abnormal system time detected, try re-spawn still')
+                        self.delay = now - 1
+                        if self.delay < 0:
+                            self.delay = 0
                     if now > self.delay:
                         # BACKOFF -> STARTING
                         self.spawn()
 
         if state == ProcessStates.STARTING:
+            if now < self.laststart:
+                logger.warn('Transition() STARTING state: abnormal system time detected, assuming we can change to RUNNING state')
+                self.laststart = now - self.config.startsecs -1
+                if self.laststart < 0:
+                    self.laststart = 0
             if now - self.laststart > self.config.startsecs:
                 # STARTING -> RUNNING if the proc has started
                 # successfully and it has stayed up for at least

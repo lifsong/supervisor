@@ -294,6 +294,10 @@ class SupervisorNamespaceRPCInterface:
                 return True
 
             t = time.time()
+            if t < started[0]:
+                self.supervisord.options.logger.warn("startProcess: Abnormal system detected, assuming start OK")
+                t = started[0] + startsecs
+
             runtime = (t - started[0])
             state = process.get_state()
 
